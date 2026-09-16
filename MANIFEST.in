@@ -1,0 +1,4 @@
+include README.md LICENSE CONTRIBUTING.md AI_POLICY.md
+recursive-include src *.py py.typed
+recursive-include tests *.py
+recursive-include tools *.py
