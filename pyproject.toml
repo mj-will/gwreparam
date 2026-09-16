@@ -73,6 +73,8 @@ test = "python -m pytest"
 lint = "ruff check ."
 format-check = "ruff format --check ."
 typecheck = "mypy"
+check-pr-title = 'python tools/check_commit_message.py --title="$PR_TITLE"'
 
 [tool.pixi.feature.build.tasks]
 build = "python -m build"
+check-dist = {cmd = "python tools/check_distribution.py", depends-on = ["build"]}
