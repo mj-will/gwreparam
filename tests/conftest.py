@@ -7,9 +7,11 @@ import pytest
 
 from gwreparam.lisa.symmetry import (
     KnownSymmetryGroup,
+    LISADeltaPhaseExtrinsicSymmetry,
     LISAExtrinsicSymmetry,
 )
 from gwreparam.symmetry import (
+    Dominant22DeltaPhasePolarizationSymmetry,
     Dominant22PhasePolarizationSymmetry,
     PeriodicParameterSymmetry,
 )
@@ -151,3 +153,93 @@ def periodic_symmetry() -> PeriodicParameterSymmetry:
 @pytest.fixture
 def dominant_symmetry() -> Dominant22PhasePolarizationSymmetry:
     return Dominant22PhasePolarizationSymmetry(0, 1)
+
+
+@pytest.fixture
+def relative_case():
+    bounds = dict(
+        lam=(0, 2 * np.pi),
+        sin_beta=(-1, 1),
+        phi_ref=(0, 2 * np.pi),
+        cos_inc=(-1, 1),
+        psi=(0, np.pi),
+    )
+    sym = LISAExtrinsicSymmetry(list(bounds), bounds)
+    x = np.random.default_rng(114).uniform(
+        *np.array(list(bounds.values())).T, (20000, 5)
+    )
+    return sym, x
+
+
+@pytest.fixture(
+    params=[
+        ("W", "cartesian"),
+        ("Z", "cartesian"),
+        ("W", "polar-area"),
+        ("Z", "polar-area"),
+    ],
+    ids=["W-cartesian", "Z-cartesian", "W-polar-area", "Z-polar-area"],
+)
+def chart_options(request):
+    return {
+        "orientation": request.param[0],
+        "representation": request.param[1],
+    }
+
+
+@pytest.fixture
+def relative_case_factory():
+    def _factory(
+        distance=True,
+        delta=True,
+        sign=-1,
+        group="reflected-antipodal",
+        phase_fold=True,
+    ):
+        bounds = {
+            "mchirp": (1.0, 3.0),
+            "q": (0.2, 1.0),
+            "chi1z": (-1.0, 1.0),
+            "chi2z": (-1.0, 1.0),
+            "t_ref": (0.0, 10.0),
+            "lam": (0.0, 2 * np.pi),
+            "sin_beta": (-1.0, 1.0),
+        }
+        if distance:
+            bounds["distance"] = (1.0, 10.0)
+        bounds.update(
+            {
+                "delta_phi" if delta else "phi_ref": (0.0, 2 * np.pi),
+                "cos_inc": (-1.0, 1.0),
+                "psi": (0.0, np.pi),
+            }
+        )
+        names = list(bounds)
+        pi, ci, wi = [
+            names.index(n)
+            for n in ("delta_phi" if delta else "phi_ref", "cos_inc", "psi")
+        ]
+        phase = (
+            (
+                Dominant22DeltaPhasePolarizationSymmetry(pi, wi, ci)
+                if delta
+                else Dominant22PhasePolarizationSymmetry(pi, wi)
+            )
+            if phase_fold
+            else None
+        )
+        cls = (
+            LISADeltaPhaseExtrinsicSymmetry if delta else LISAExtrinsicSymmetry
+        )
+        sym = cls(
+            names,
+            bounds,
+            symmetry_group=group,
+            phase_polarization=phase,
+            **({"phase_sign": sign} if delta else {}),
+        )
+        low, high = np.array(list(bounds.values())).T
+        x = np.random.default_rng(915).uniform(low, high, (256, len(names)))
+        return sym, None, x
+
+    return _factory
