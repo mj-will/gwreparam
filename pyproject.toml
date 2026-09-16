@@ -1,0 +1,78 @@
+[build-system]
+requires = ["setuptools>=68", "wheel", "setuptools-scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gwreparam"
+description = "Deterministic gravitational-wave coordinates and symmetry branches"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {file = "LICENSE"}
+authors = [{name = "Michael J. Williams"}]
+dependencies = ["numpy>=1.25.2"]
+dynamic = ["version"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+gwreparam = ["py.typed"]
+
+[tool.setuptools_scm]
+
+[dependency-groups]
+test = ["pytest>=7", "pytest-cov>=4"]
+lint = ["pre-commit", "mypy>=1.10", "ruff==0.14.*", "numpy<2.5"]
+build = ["build", "twine"]
+dev = [{include-group = "test"}, {include-group = "lint"}, {include-group = "build"}]
+
+[tool.ruff]
+line-length = 79
+target-version = "py311"
+
+[tool.ruff.lint]
+extend-select = ["I"]
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["gwreparam"]
+mypy_path = ["src"]
+warn_unused_configs = true
+show_error_codes = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+requires-pixi = ">=0.78"
+platforms = ["linux-64", "osx-arm64"]
+
+[tool.pixi.pypi-dependencies]
+gwreparam = {path = ".", editable = true}
+
+[tool.pixi.environments]
+default = ["py313", "dev"]
+py311 = ["py311", "test"]
+py312 = ["py312", "test"]
+py313 = ["py313", "test"]
+lint = ["py313", "lint"]
+build = ["py313", "build"]
+
+[tool.pixi.feature.py311.dependencies]
+python = "3.11.*"
+[tool.pixi.feature.py312.dependencies]
+python = "3.12.*"
+[tool.pixi.feature.py313.dependencies]
+python = "3.13.*"
+
+[tool.pixi.feature.test.tasks]
+test = "python -m pytest"
+
+[tool.pixi.feature.lint.tasks]
+lint = "ruff check ."
+format-check = "ruff format --check ."
+typecheck = "mypy"
+
+[tool.pixi.feature.build.tasks]
+build = "python -m build"
