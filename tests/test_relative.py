@@ -19,6 +19,7 @@ def assert_angles_equal(x, y, sym, atol=2e-12):
     np.testing.assert_allclose(diff, 0, atol=atol)
 
 
+@pytest.mark.parametrize("polarization_frame", ["sky-rotated", "unrotated"])
 @pytest.mark.parametrize("distance", [False, True])
 @pytest.mark.parametrize(
     ("delta", "sign"), [(False, -1), (True, -1), (True, 1)]
@@ -27,6 +28,7 @@ def assert_angles_equal(x, y, sym, atol=2e-12):
 @pytest.mark.parametrize("phase_fold", [False, True])
 def test_roundtrip_and_branches(
     relative_case_factory,
+    polarization_frame,
     distance,
     delta,
     sign,
@@ -38,6 +40,7 @@ def test_roundtrip_and_branches(
     chart = RelativePolarizationTransform(
         sym,
         distance_scale=2.0,
+        polarization_frame=polarization_frame,
         **chart_options,
     )
     y, jf, aux = chart.forward(x)
@@ -67,7 +70,9 @@ def test_roundtrip_and_branches(
         if chart.orientation == "W"
         else np.sqrt(1 - u)
     )
-    offset = f[:, sym.lambda_index]
+    offset = (
+        f[:, sym.lambda_index] if polarization_frame == "sky-rotated" else 0
+    )
     theta = (4 * s * (f[:, sym.psi_index] - offset)) % (2 * np.pi)
     if chart.representation == "cartesian":
         z = radius * np.exp(1j * theta)
@@ -84,15 +89,17 @@ def test_roundtrip_and_branches(
         assert_angles_equal(moved, chart.inverse(v, auxiliary=a)[0], sym)
 
 
+@pytest.mark.parametrize("polarization_frame", ["sky-rotated", "unrotated"])
 @pytest.mark.parametrize("distance", [False, True])
 @pytest.mark.parametrize("sign", [-1, 1])
 def test_numerical_jacobian(
-    relative_case_factory, distance, sign, chart_options
+    relative_case_factory, polarization_frame, distance, sign, chart_options
 ) -> None:
     sym, _, x = relative_case_factory(distance, sign=sign)
     chart = RelativePolarizationTransform(
         sym,
         distance_scale=2.0,
+        polarization_frame=polarization_frame,
         **chart_options,
     )
     for row in x[:10]:
@@ -140,3 +147,71 @@ def test_handedness_proposal_is_involution_and_unit_jacobian(
         d[:, col] = 1e-6
         jac[:, col] = (flip(row + d) - flip(row - d))[0] / 2e-6
     np.testing.assert_allclose(np.linalg.slogdet(jac)[1], 0, atol=1e-7)
+
+
+def test_unrotated_frame_relation_and_legacy_checkpoint(
+    relative_case_factory, chart_options
+) -> None:
+    import pickle
+
+    sym, _, x = relative_case_factory(delta=False)
+    rotated = RelativePolarizationTransform(sym, **chart_options)
+    ordinary = RelativePolarizationTransform(
+        sym, polarization_frame="unrotated", **chart_options
+    )
+    y, jac, labels = rotated.forward(x)
+    z, ordinary_jac, ordinary_labels = ordinary.forward(x)
+    sky, _ = sym.sky_symmetry.fold(x)
+    s = np.sign(sky[:, sym.iota_index])
+    lam = sky[:, sym.lambda_index]
+    np.testing.assert_allclose(
+        np.exp(1j * y[:, sym.phase_index]),
+        np.exp(1j * (z[:, sym.phase_index] + 2 * s * lam)),
+        atol=2e-14,
+    )
+    if chart_options["representation"] == "cartesian":
+        w_rot = y[:, sym.iota_index] + 1j * y[:, sym.psi_index]
+        w = z[:, sym.iota_index] + 1j * z[:, sym.psi_index]
+        np.testing.assert_allclose(
+            w_rot, w * np.exp(-4j * s * lam), atol=2e-14
+        )
+    else:
+        np.testing.assert_allclose(y[:, sym.iota_index], z[:, sym.iota_index])
+        np.testing.assert_allclose(
+            np.exp(1j * y[:, sym.psi_index]),
+            np.exp(1j * (z[:, sym.psi_index] - 4 * s * lam)),
+            atol=2e-14,
+        )
+    np.testing.assert_array_equal(jac, ordinary_jac)
+    # Existing serialized charts do not contain the new convention field.
+    del rotated.polarization_frame
+    legacy = pickle.loads(pickle.dumps(rotated))
+    np.testing.assert_array_equal(legacy.forward(x)[0], y)
+    assert_angles_equal(x, legacy.inverse(y, auxiliary=labels)[0], sym)
+    ordinary = pickle.loads(pickle.dumps(ordinary))
+    assert_angles_equal(
+        x, ordinary.inverse(z, auxiliary=ordinary_labels)[0], sym
+    )
+
+
+def test_unrotated_seams_and_rejection(
+    relative_case_factory, chart_options
+) -> None:
+    sym, _, x = relative_case_factory(delta=False)
+    chart = RelativePolarizationTransform(
+        sym, polarization_frame="unrotated", **chart_options
+    )
+    x = x[:8].copy()
+    x[:, sym.psi_index] = np.arange(8) * np.pi / 8
+    x[:, sym.phase_index] = np.arange(8) * np.pi / 4
+    x[:, sym.iota_index] = np.tile([-0.4, 0.4], 4)
+    y, jac, labels = chart.forward(x)
+    restored, inverse = chart.inverse(y, auxiliary=labels)
+    assert_angles_equal(x, restored, sym)
+    np.testing.assert_allclose(jac + inverse, 0, atol=1e-13)
+    y[:, sym.iota_index] = 2
+    physical, inverse = chart.inverse(y, auxiliary=labels)
+    assert np.isfinite(physical).all()
+    assert np.isneginf(inverse).all()
+    with pytest.raises(ValueError, match="polarization_frame"):
+        RelativePolarizationTransform(sym, polarization_frame="unknown")

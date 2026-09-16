@@ -1,5 +1,7 @@
 """Deterministic coordinates extracted from MBHB analysis utilities."""
 
+from typing import Literal
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -30,7 +32,13 @@ class RelativePolarization:
         Radial coordinate, default W.
     representation : {"cartesian", "polar-area"}, optional
         Cartesian components or squared radius and angle.
+    polarization_frame : {"sky-rotated", "unrotated"}, optional
+        Use psi-lambda (default) or ordinary psi after sky folding.
+        Both frames retain all branches and have the same Jacobian.
     """
+
+    # Old checkpoints have no instance field and retain the original chart.
+    polarization_frame: Literal["sky-rotated", "unrotated"] = "sky-rotated"
 
     def __init__(
         self,
@@ -39,6 +47,9 @@ class RelativePolarization:
         distance_scale: float = 3.085677581491367e25,
         orientation: str = "W",
         representation: str = "cartesian",
+        polarization_frame: Literal[
+            "sky-rotated", "unrotated"
+        ] = "sky-rotated",
     ) -> None:
         if orientation not in ("W", "Z"):
             raise ValueError(
@@ -48,6 +59,11 @@ class RelativePolarization:
             raise ValueError(
                 "relative_polarization_representation must be cartesian or polar-area."
             )
+        if polarization_frame not in ("sky-rotated", "unrotated"):
+            raise ValueError(
+                "polarization_frame must be 'sky-rotated' or 'unrotated'."
+            )
+        self.polarization_frame = polarization_frame
         self.orientation = orientation
         self.representation = representation
         self.symmetry = symmetry
@@ -117,7 +133,11 @@ class RelativePolarization:
         folded, sky = self.symmetry.sky_symmetry.fold(raw)
         c, psi = folded[:, self.ci], folded[:, self.wi]
         phi = folded[:, self.pi]
-        lam = folded[:, self.li]
+        lam = (
+            folded[:, self.li]
+            if self.polarization_frame == "sky-rotated"
+            else np.zeros(len(folded))
+        )
         u, s = np.abs(c), np.sign(c)
         if np.any(~np.isfinite(folded)) or np.any((u == 0) | (u >= 1)):
             raise ValueError(
@@ -254,7 +274,11 @@ class RelativePolarization:
             if self.representation == "cartesian"
             else np.exp(1j * (safe[:, self.wi] % (2 * np.pi)))
         )
-        lam = safe[:, self.li]
+        lam = (
+            safe[:, self.li]
+            if self.polarization_frame == "sky-rotated"
+            else np.zeros(len(safe))
+        )
         psi, base = self._angles(safe[:, self.pi], w, lam, s)
         psi_shift = np.asarray(auxiliary["psi"]) * np.pi / 2
         safe[:, self.wi] = (psi + psi_shift) % np.pi
