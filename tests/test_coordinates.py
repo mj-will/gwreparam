@@ -10,8 +10,8 @@ from gwreparam.amplitude import (
     inverse_circular_amplitudes,
 )
 from gwreparam.lisa.coordinates import (
-    inverse_relative_polarization,
-    relative_polarization,
+    helicity_coordinates,
+    inverse_helicity_coordinates,
 )
 from gwreparam.lisa.symmetry import fold_sky, unfold_sky
 from gwreparam.phase import delta_phase
@@ -172,10 +172,10 @@ def test_relative(orientation, representation, frame, distance):
     c = np.array([-0.8, 0.3])
     psi = np.pi / 2
     lam = 0.4
-    coords, jac, branches = relative_polarization(
+    coords, jac, branches = helicity_coordinates(
         phi, c, psi, lam, distance=3.0 if distance else None, **options
     )
-    back, inv = inverse_relative_polarization(
+    back, inv = inverse_helicity_coordinates(
         *coords[:3],
         lam,
         hand=branches["hand"],
@@ -198,7 +198,7 @@ def test_relative(orientation, representation, frame, distance):
     point = np.array([1.2, 0.3, 0.7] + ([3.0] if distance else []))
 
     def fn(phi, c, psi, *d):
-        return relative_polarization(
+        return helicity_coordinates(
             phi, c, psi, lam, distance=d[0] if d else None, **options
         )
 
@@ -208,7 +208,7 @@ def test_relative(orientation, representation, frame, distance):
         atol=1e-8,
     )
     assert fn(*point)[1].shape == ()
-    bad, inv = inverse_relative_polarization(
+    bad, inv = inverse_helicity_coordinates(
         1.0,
         [0.0, 1.0, 1.1, np.inf, np.nan],
         0.0,
@@ -235,17 +235,17 @@ def test_invalid_labels(labels):
 @pytest.mark.parametrize("c", [0.0, -1.0, 1.0, np.nan])
 def test_relative_invalid_physical(c):
     with pytest.raises(ValueError):
-        relative_polarization(1.0, c, 0.3)
+        helicity_coordinates(1.0, c, 0.3)
 
 
 def test_relative_distance_optional_and_broadcast():
-    a, _, _ = relative_polarization(1.0, 0.3, 0.2)
-    b, jac, _ = relative_polarization(1.0, 0.3, 0.2, distance=np.ones((2, 3)))
+    a, _, _ = helicity_coordinates(1.0, 0.3, 0.2)
+    b, jac, _ = helicity_coordinates(1.0, 0.3, 0.2, distance=np.ones((2, 3)))
     assert len(a) == 3 and len(b) == 4 and jac.shape == (2, 3)
     with pytest.raises(ValueError):
-        relative_polarization(1.0, 0.3, 0.2, distance=-1.0)
+        helicity_coordinates(1.0, 0.3, 0.2, distance=-1.0)
     with pytest.raises(ValueError):
-        inverse_relative_polarization(
+        inverse_helicity_coordinates(
             1.0, 0.2, 0.2, hand=0, psi_branch=0, phase_branch=0
         )
 
@@ -289,7 +289,7 @@ def test_scalar_array_contract():
         fold_phase_polarization(0.3, 0.2),
         fold_delta_phase_polarization(0.3, 0.2, 0.4),
         fold_sky(0.3, 0.2, 0.4, 0.5),
-        relative_polarization(0.3, 0.4, 0.2),
+        helicity_coordinates(0.3, 0.4, 0.2),
     ]
     for result in outputs:
         coordinates, jac, *labels = result
@@ -320,9 +320,9 @@ def test_periodic_invalid_configuration(kwargs):
 
 
 def test_inverse_label_broadcast_and_nonmutation():
-    values, jac, labels = relative_polarization(1.2, 0.3, 0.7, 0.4)
+    values, jac, labels = helicity_coordinates(1.2, 0.3, 0.7, 0.4)
     originals = [v.copy() for v in values]
-    back, inv = inverse_relative_polarization(
+    back, inv = inverse_helicity_coordinates(
         *values,
         0.4,
         hand=np.array([[-1], [1]]),
@@ -330,7 +330,7 @@ def test_inverse_label_broadcast_and_nonmutation():
         phase_branch=0,
     )
     assert inv.shape == (2, 2)
-    repeated, forward, branches = relative_polarization(*back, 0.4)
+    repeated, forward, branches = helicity_coordinates(*back, 0.4)
     for before, after, expected in zip(values, originals, repeated):
         np.testing.assert_array_equal(before, after)
         np.testing.assert_allclose(expected, before, atol=2e-14)
@@ -340,7 +340,7 @@ def test_inverse_label_broadcast_and_nonmutation():
 
 @pytest.mark.parametrize("log_amplitude", [np.inf, np.nan, 1000.0, -1000.0])
 def test_relative_invalid_distance_proposal(log_amplitude):
-    values, jac = inverse_relative_polarization(
+    values, jac = inverse_helicity_coordinates(
         1.0,
         0.2,
         0.1,
