@@ -292,3 +292,64 @@ def inverse_relative_polarization(
     return tuple(np.asarray(v) for v in result), np.where(
         valid, -_log_jacobian(u, d, orientation, representation), -np.inf
     )
+
+
+def source_helicity(
+    phase: ArrayLike,
+    cos_inclination: ArrayLike,
+    polarization: ArrayLike,
+    *,
+    distance: ArrayLike | None = None,
+    distance_scale: float = 3.085677581491367e25,
+) -> tuple[
+    tuple[NDArray[np.float64], ...],
+    NDArray[np.float64],
+    dict[str, NDArray[np.int64]],
+]:
+    """Return (Phi_src, H_src_x, H_src_y[, log_A_dom]), Jacobian and labels.
+
+    Angles are in radians, with 0 < abs(cos_inclination) < 1. Positive
+    distance, if supplied, uses distance_scale units. NumPy inputs broadcast.
+    H_src denotes complex source helicity coordinates; hand is the discrete
+    handedness label. This is the Cartesian W chart without sky folding;
+    branch and invalid-input conventions match relative_polarization.
+    """
+    return relative_polarization(
+        phase,
+        cos_inclination,
+        polarization,
+        distance=distance,
+        distance_scale=distance_scale,
+        polarization_frame="unrotated",
+    )
+
+
+def inverse_source_helicity(
+    phase: ArrayLike,
+    x: ArrayLike,
+    y: ArrayLike,
+    *,
+    hand: ArrayLike,
+    psi_branch: ArrayLike,
+    phase_branch: ArrayLike,
+    log_amplitude: ArrayLike | None = None,
+    distance_scale: float = 3.085677581491367e25,
+) -> tuple[tuple[NDArray[np.float64], ...], NDArray[np.float64]]:
+    """Invert source_helicity with retained hand, psi and phase labels.
+
+    Returns (orbital phase, cos inclination, polarization[, distance]) and
+    inverse log determinant. NumPy inputs broadcast; phase is periodic 2*pi.
+    Invalid source radii or amplitudes return finite out-of-prior placeholders
+    and -inf Jacobians, as in inverse_relative_polarization.
+    """
+    return inverse_relative_polarization(
+        phase,
+        x,
+        y,
+        hand=hand,
+        psi_branch=psi_branch,
+        phase_branch=phase_branch,
+        log_amplitude=log_amplitude,
+        distance_scale=distance_scale,
+        polarization_frame="unrotated",
+    )
