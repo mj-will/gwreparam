@@ -14,7 +14,7 @@ INSTALLATION_CHECK = """
 import importlib.util
 import numpy as np
 from gwreparam.amplitude import circular_amplitudes, inverse_circular_amplitudes
-from gwreparam.lisa.coordinates import relative_polarization
+from gwreparam.lisa.coordinates import helicity_coordinates
 from gwreparam.phase import delta_phase
 
 for name in ("sequince", "nessai", "bilby", "bbhx"):
@@ -26,7 +26,7 @@ restored, inverse_jacobian = inverse_circular_amplitudes(
 np.testing.assert_allclose(restored, (0.3, 2.0))
 np.testing.assert_allclose(jacobian + inverse_jacobian, 0, atol=1e-14)
 assert delta_phase(1.0, 0.2, 0.3)[0] == 1.2
-values, jacobian, labels = relative_polarization(1.0, 0.3, 0.2)
+values, jacobian, labels = helicity_coordinates(1.0, 0.3, 0.2)
 assert len(values) == 3 and set(labels) == {"hand", "psi", "phase"}
 
 """

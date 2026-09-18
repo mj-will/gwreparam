@@ -1,4 +1,4 @@
-"""Relative-polarization chart, separate from sky folding and phase conventions."""
+"""Helicity coordinates, separate from sky folding and phase conventions."""
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -49,7 +49,7 @@ def _angles(
     return psi, phi_dom / 2 + hand * psi
 
 
-def relative_polarization(
+def helicity_coordinates(
     phase: ArrayLike,
     cos_inclination: ArrayLike,
     polarization: ArrayLike,
@@ -65,7 +65,7 @@ def relative_polarization(
     NDArray[np.float64],
     dict[str, NDArray[np.int64]],
 ]:
-    """Convert orbital phase and orientation to a relative-polarization chart.
+    """Convert orbital phase and orientation to helicity coordinates.
 
     Parameters
     ----------
@@ -86,7 +86,7 @@ def relative_polarization(
     representation : {"cartesian", "polar-area"}, optional
         Cartesian components or squared radius and angle in [0, 2*pi).
     polarization_frame : {"sky-rotated", "unrotated"}, optional
-        Use polarization-longitude (default) or polarization in the chart.
+        Use polarization-longitude (default) or polarization in the coordinates.
 
     Returns
     -------
@@ -103,7 +103,7 @@ def relative_polarization(
     Raises
     ------
     ValueError
-        If coordinates, chart options or scale are invalid. Exact edge-on
+        If coordinates, coordinate options or scale are invalid. Exact edge-on
         and face-on/off points are excluded singularities.
 
     Notes
@@ -125,7 +125,7 @@ def relative_polarization(
         (u == 0) | (u >= 1)
     ):
         raise ValueError(
-            "Relative polarization requires finite, non-edge-on, non-face-on coordinates."
+            "Helicity coordinates require finite, non-edge-on, non-face-on coordinates."
         )
     s = np.sign(c).astype(np.int64)
     if d is not None and np.any(d <= 0):
@@ -167,7 +167,7 @@ def relative_polarization(
     )
 
 
-def inverse_relative_polarization(
+def inverse_helicity_coordinates(
     phase: ArrayLike,
     a: ArrayLike,
     b: ArrayLike,
@@ -182,32 +182,32 @@ def inverse_relative_polarization(
     representation: str = "cartesian",
     polarization_frame: str = "sky-rotated",
 ) -> tuple[tuple[NDArray[np.float64], ...], NDArray[np.float64]]:
-    """Invert a relative-polarization chart using all three branch labels.
+    """Invert helicity coordinates using all three branch labels.
 
     Parameters
     ----------
     phase, a, b : array_like
-        Phi and chart coordinates. Cartesian a,b must be in the open unit
+        Phi and helicity coordinates. Cartesian a,b must be in the open unit
         disk, excluding its center; polar-area a must lie in (0, 1) and b
         is a radian angle. Phase has period 2*pi.
     longitude : array_like, optional
-        Longitude supplied to the forward chart, in radians.
+        Longitude supplied to the forward transform, in radians.
     hand : array_like of int
         Explicit handedness labels, -1 or +1.
     psi_branch, phase_branch : array_like of int
         Explicit polarization and phase labels, each 0 or 1.
     log_amplitude : array_like or None, optional
-        Optional distance-related coordinate from the forward chart. All
+        Optional distance-related coordinate from the forward transform. All
         coordinates and labels must be broadcastable.
     distance_scale : float, optional
         Positive finite scale matching the forward map, default one Gpc in
         metres. Reconstructed distance has the same units.
     orientation : {"W", "Z"}, optional
-        Radial convention matching the forward chart.
+        Radial convention matching the forward transform.
     representation : {"cartesian", "polar-area"}, optional
-        Representation matching the forward chart.
+        Representation matching the forward transform.
     polarization_frame : {"sky-rotated", "unrotated"}, optional
-        Frame matching the forward chart.
+        Frame matching the forward transform.
 
     Returns
     -------
@@ -222,14 +222,14 @@ def inverse_relative_polarization(
     Raises
     ------
     ValueError
-        If labels, chart options or reference scale are invalid.
+        If labels, coordinate options or reference scale are invalid.
 
     Notes
     -----
     Nonfinite proposals, invalid radii, recovered singular inclinations, and
     nonpositive or overflowing distances produce finite placeholders with
     cosine inclination 2 and log Jacobian -inf. They must be rejected by the
-    consumer. The chart is never clipped or regularized.
+    consumer. The transform is never clipped or regularized.
     """
     _check_options(orientation, representation, polarization_frame)
     _check_scale(distance_scale)
@@ -291,4 +291,66 @@ def inverse_relative_polarization(
         result += (d,)
     return tuple(np.asarray(v) for v in result), np.where(
         valid, -_log_jacobian(u, d, orientation, representation), -np.inf
+    )
+
+
+def source_helicity(
+    phase: ArrayLike,
+    cos_inclination: ArrayLike,
+    polarization: ArrayLike,
+    *,
+    distance: ArrayLike | None = None,
+    distance_scale: float = 3.085677581491367e25,
+) -> tuple[
+    tuple[NDArray[np.float64], ...],
+    NDArray[np.float64],
+    dict[str, NDArray[np.int64]],
+]:
+    """Return (Phi_src, H_src_x, H_src_y[, log_A_dom]), Jacobian and labels.
+
+    This is the primary API for Cartesian source helicity coordinates.
+    Angles are in radians, with 0 < abs(cos_inclination) < 1. Positive
+    distance, if supplied, uses distance_scale units. NumPy inputs broadcast.
+    H_src denotes complex source helicity coordinates; hand is the discrete
+    handedness label. This uses Cartesian W coordinates without sky folding;
+    branch and invalid-input conventions match helicity_coordinates.
+    """
+    return helicity_coordinates(
+        phase,
+        cos_inclination,
+        polarization,
+        distance=distance,
+        distance_scale=distance_scale,
+        polarization_frame="unrotated",
+    )
+
+
+def inverse_source_helicity(
+    phase: ArrayLike,
+    x: ArrayLike,
+    y: ArrayLike,
+    *,
+    hand: ArrayLike,
+    psi_branch: ArrayLike,
+    phase_branch: ArrayLike,
+    log_amplitude: ArrayLike | None = None,
+    distance_scale: float = 3.085677581491367e25,
+) -> tuple[tuple[NDArray[np.float64], ...], NDArray[np.float64]]:
+    """Invert source_helicity with retained hand, psi and phase labels.
+
+    Returns (orbital phase, cos inclination, polarization[, distance]) and
+    inverse log determinant. NumPy inputs broadcast; phase is periodic 2*pi.
+    Invalid source radii or amplitudes return finite out-of-prior placeholders
+    and -inf Jacobians, as in inverse_helicity_coordinates.
+    """
+    return inverse_helicity_coordinates(
+        phase,
+        x,
+        y,
+        hand=hand,
+        psi_branch=psi_branch,
+        phase_branch=phase_branch,
+        log_amplitude=log_amplitude,
+        distance_scale=distance_scale,
+        polarization_frame="unrotated",
     )
