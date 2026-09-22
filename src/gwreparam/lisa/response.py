@@ -1,4 +1,4 @@
-"""Affine frozen-response helicity coordinates, independent of sampler parameter names."""
+"""Frozen-response helicity coordinates, independent of sampler names."""
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -236,3 +236,114 @@ def frozen_response_log_amplitude_correction(
         return np.asarray(
             2 * np.log1p(b) - np.log(4.0) + np.log(np.hypot(real, imag))
         )
+
+
+def _ratio(
+    x: ArrayLike,
+    y: ArrayLike,
+    sin_latitude: ArrayLike,
+    longitude: ArrayLike,
+    hand: ArrayLike,
+    *,
+    inverse: bool,
+) -> tuple[tuple[NDArray, NDArray], NDArray]:
+    x, y, k, c, s = _inputs(x, y, sin_latitude, longitude, hand)
+    b = np.asarray(sin_latitude, dtype=x.dtype)
+    if not inverse and np.any(b == 0):
+        raise ValueError(
+            "Frozen-response ratio is singular in the exact plane"
+        )
+    # Compute 1-k directly: subtracting k from one loses near-plane precision.
+    t = 4 * b / (1 + b) ** 2
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+        z = x + 1j * y
+        # Equivalent algebra for the same ratio: retain small H at the poles
+        # and small 1-k near the plane without subtracting rounded k from one.
+        if inverse:
+            z = (c + 1j * s) * z
+            numerator = np.where(k < 0.5, z - k, (z - 1) + t)
+            denominator = np.where(k < 0.5, 1 - k * z, (1 - z) + t * z)
+        else:
+            numerator = np.where(k < 0.5, z + k, (z + 1) - t)
+            denominator = np.where(k < 0.5, 1 + k * z, (1 + z) - t * z)
+        result = numerator / denominator
+        jac = 2 * (np.log(t) + np.log(2 - t)) - 4 * np.log(np.abs(denominator))
+        if not inverse:
+            result = (c - 1j * s) * result
+    invalid = (
+        (b == 0)
+        | ~np.isfinite(result)
+        | ~np.isfinite(jac)
+        | (denominator == 0)
+    )
+    return (
+        (
+            np.asarray(np.where(invalid, np.nan, result.real)),
+            np.asarray(np.where(invalid, np.nan, result.imag)),
+        ),
+        np.asarray(np.where(invalid, -np.inf, jac)),
+    )
+
+
+def frozen_response_ratio(
+    x: ArrayLike,
+    y: ArrayLike,
+    sin_latitude: ArrayLike,
+    longitude: ArrayLike,
+    *,
+    hand: ArrayLike,
+) -> tuple[tuple[NDArray, NDArray], NDArray]:
+    """Map source helicity H to exp(-4j*hand*longitude)*(H+k)/(1+k*H).
+
+    Inputs and returns follow :func:`affine_frozen_response`, with folded
+    sine latitude in (0, 1]. The exact plane raises ValueError. Here
+    k=((1-b)/(1+b))**2. The Cartesian log determinant is
+    2*log(1-k**2)-4*log(abs(1+k*H)). Nonfinite values and poles return
+    NaN coordinates and -inf Jacobians. No physical support clipping is used.
+    """
+    return _ratio(x, y, sin_latitude, longitude, hand, inverse=False)
+
+
+def inverse_frozen_response_ratio(
+    x: ArrayLike,
+    y: ArrayLike,
+    sin_latitude: ArrayLike,
+    longitude: ArrayLike,
+    *,
+    hand: ArrayLike,
+) -> tuple[tuple[NDArray, NDArray], NDArray]:
+    """Recover H=(U-k)/(1-k*U), U=exp(4j*hand*longitude)*R.
+
+    Inputs and returns follow :func:`inverse_affine_frozen_response`.
+    The inverse Cartesian log determinant is
+    2*log(1-k**2)-4*log(abs(1-k*U)). Exact-plane rows, poles and nonfinite
+    results return NaN coordinates and -inf Jacobians for caller rejection.
+    Finite coordinates outside the physical disk are not clipped or rejected.
+    """
+    return _ratio(x, y, sin_latitude, longitude, hand, inverse=True)
+
+
+def frozen_response_ratio_log_jacobian(
+    x: ArrayLike,
+    y: ArrayLike,
+    sin_latitude: ArrayLike,
+    longitude: ArrayLike,
+    *,
+    hand: ArrayLike,
+) -> NDArray:
+    """Return the forward ratio log determinant with the mapping's validation."""
+    return frozen_response_ratio(x, y, sin_latitude, longitude, hand=hand)[1]
+
+
+def inverse_frozen_response_ratio_log_jacobian(
+    x: ArrayLike,
+    y: ArrayLike,
+    sin_latitude: ArrayLike,
+    longitude: ArrayLike,
+    *,
+    hand: ArrayLike,
+) -> NDArray:
+    """Return the inverse ratio log determinant with the mapping's validation."""
+    return inverse_frozen_response_ratio(
+        x, y, sin_latitude, longitude, hand=hand
+    )[1]
