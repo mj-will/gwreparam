@@ -347,3 +347,200 @@ def inverse_frozen_response_ratio_log_jacobian(
     return inverse_frozen_response_ratio(
         x, y, sin_latitude, longitude, hand=hand
     )[1]
+
+
+def _detector_ratio_fraction(value: float) -> float:
+    """Validate a fixed interpolation fraction without accepting booleans."""
+    from numbers import Real
+
+    if (
+        isinstance(value, (bool, np.bool_))
+        or not isinstance(value, Real)
+        or not np.isfinite(value)
+        or not 0 <= value <= 1
+    ):
+        raise ValueError(
+            "detector_ratio_fraction must be a finite scalar in [0, 1]"
+        )
+    return float(value)
+
+
+def _interpolated_frozen_response(
+    x: ArrayLike,
+    y: ArrayLike,
+    sin_latitude: ArrayLike,
+    longitude: ArrayLike,
+    hand: ArrayLike,
+    detector_ratio_fraction: float,
+    *,
+    inverse: bool,
+) -> tuple[tuple[NDArray, NDArray], NDArray]:
+    fraction = _detector_ratio_fraction(detector_ratio_fraction)
+    # Preserve endpoint behavior, including the ratio's exact-plane policy.
+    if fraction == 0:
+        affine = (
+            inverse_affine_frozen_response
+            if inverse
+            else affine_frozen_response
+        )
+        return affine(x, y, sin_latitude, longitude, hand=hand)
+    if fraction == 1:
+        return _ratio(x, y, sin_latitude, longitude, hand, inverse=inverse)
+    x, y, k, c, s = _inputs(x, y, sin_latitude, longitude, hand)
+    b = np.asarray(sin_latitude, dtype=x.dtype)
+    delta = 4 * b / (1 + b) ** 2
+    # Factor the determinant to avoid cancellation near the plane and ratio limit.
+    complement = 1 - fraction
+    a = 1 + complement * k
+    determinant = (1 + k) * (complement + fraction * delta)
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+        z = x + 1j * y
+        if inverse:
+            z = (c + 1j * s) * z
+            numerator = np.where(
+                k < 0.5, a * z - k, (z - 1) + delta + complement * k * z
+            )
+            denominator = np.where(
+                k < 0.5,
+                1 - fraction * k * z,
+                complement + fraction * ((1 - z) + delta * z),
+            )
+        else:
+            numerator = np.where(k < 0.5, z + k, (z + 1) - delta)
+            denominator = np.where(
+                k < 0.5,
+                a + fraction * k * z,
+                complement * (1 + k) + fraction * ((1 + z) - delta * z),
+            )
+        result = numerator / denominator
+        jac = 2 * np.log(determinant) - 4 * np.log(np.abs(denominator))
+        if not inverse:
+            result = (c - 1j * s) * result
+    invalid = ~np.isfinite(result) | ~np.isfinite(jac) | (denominator == 0)
+    return (
+        (
+            np.asarray(np.where(invalid, np.nan, result.real)),
+            np.asarray(np.where(invalid, np.nan, result.imag)),
+        ),
+        np.asarray(np.where(invalid, -np.inf, jac)),
+    )
+
+
+def interpolated_frozen_response(
+    x: ArrayLike,
+    y: ArrayLike,
+    sin_latitude: ArrayLike,
+    longitude: ArrayLike,
+    *,
+    hand: ArrayLike,
+    detector_ratio_fraction: float,
+) -> tuple[tuple[NDArray, NDArray], NDArray]:
+    """Interpolate the denominator between affine and ratio detector charts.
+
+    Parameters
+    ----------
+    x, y : array_like
+        Cartesian source helicity. NumPy floating inputs broadcast, preserving
+        their common floating dtype; inputs are not mutated.
+    sin_latitude, longitude : array_like
+        Folded sine latitude in [0, 1] and longitude in radians.
+    hand : array_like of int
+        Retained -1/+1 branch labels, broadcast with the coordinates.
+    detector_ratio_fraction : float
+        Fixed finite scalar in [0, 1]: zero selects the affine chart, one the
+        detector ratio. The ratio endpoint raises at exact zero latitude.
+
+    Returns
+    -------
+    coordinates : tuple of ndarray
+        Cartesian detector coordinates with the broadcast shape.
+    log_jacobian : ndarray
+        Forward log-absolute determinant with the same shape and dtype.
+
+    Notes
+    -----
+    Physical support is the caller's responsibility; no clipping is applied.
+    For interior fractions, poles/nonfinite results give NaN coordinates and
+    -inf Jacobians. Endpoints preserve the existing maps' behavior. Detector
+    phase and amplitude corrections are unchanged. See
+    docs/interpolated_detector.md for equations and singular boundaries.
+    """
+    return _interpolated_frozen_response(
+        x,
+        y,
+        sin_latitude,
+        longitude,
+        hand,
+        detector_ratio_fraction,
+        inverse=False,
+    )
+
+
+def inverse_interpolated_frozen_response(
+    x: ArrayLike,
+    y: ArrayLike,
+    sin_latitude: ArrayLike,
+    longitude: ArrayLike,
+    *,
+    hand: ArrayLike,
+    detector_ratio_fraction: float,
+) -> tuple[tuple[NDArray, NDArray], NDArray]:
+    """Invert interpolated_frozen_response at the same fixed fraction.
+
+    Parameters follow :func:`interpolated_frozen_response`, except x and y
+    contain detector coordinates. Returns Cartesian source coordinates and
+    the inverse log-absolute determinant with the broadcast shape and common
+    floating dtype. No physical-support clipping is performed. For interior
+    fractions, poles/nonfinite results give NaN coordinates and -inf Jacobians.
+    Endpoints preserve the existing inverse maps' behavior, including rejection
+    of exact-plane rows at detector_ratio_fraction=1.
+    """
+    return _interpolated_frozen_response(
+        x,
+        y,
+        sin_latitude,
+        longitude,
+        hand,
+        detector_ratio_fraction,
+        inverse=True,
+    )
+
+
+def interpolated_frozen_response_log_jacobian(
+    x: ArrayLike,
+    y: ArrayLike,
+    sin_latitude: ArrayLike,
+    longitude: ArrayLike,
+    *,
+    hand: ArrayLike,
+    detector_ratio_fraction: float,
+) -> NDArray:
+    """Return the forward log determinant with the mapping's validation."""
+    return interpolated_frozen_response(
+        x,
+        y,
+        sin_latitude,
+        longitude,
+        hand=hand,
+        detector_ratio_fraction=detector_ratio_fraction,
+    )[1]
+
+
+def inverse_interpolated_frozen_response_log_jacobian(
+    x: ArrayLike,
+    y: ArrayLike,
+    sin_latitude: ArrayLike,
+    longitude: ArrayLike,
+    *,
+    hand: ArrayLike,
+    detector_ratio_fraction: float,
+) -> NDArray:
+    """Return the inverse log determinant with the mapping's validation."""
+    return inverse_interpolated_frozen_response(
+        x,
+        y,
+        sin_latitude,
+        longitude,
+        hand=hand,
+        detector_ratio_fraction=detector_ratio_fraction,
+    )[1]
